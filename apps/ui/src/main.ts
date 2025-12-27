@@ -37,35 +37,8 @@ app.commandLine.appendSwitch('js-flags', '--expose-gc --max-old-space-size=4096'
 
 console.log('[Electron] Network stability flags applied');
 
-// ============================================
-// Increase File Descriptor Limit
-// ============================================
-// Prevent SIGKILL due to file descriptor exhaustion
-// Analysis showed crashes at 256 FD limit with concurrent features
-try {
-  const currentLimit = process.getrlimit?.('nofile');
-  const TARGET_FD_LIMIT = 10240;
-
-  if (currentLimit && currentLimit.soft < TARGET_FD_LIMIT) {
-    console.log('[Electron] Current file descriptor limit:', currentLimit.soft);
-    console.log(`[Electron] Increasing file descriptor limit to ${TARGET_FD_LIMIT}...`);
-
-    process.setrlimit?.('nofile', {
-      soft: TARGET_FD_LIMIT,
-      hard: Math.max(TARGET_FD_LIMIT, currentLimit.hard),
-    });
-
-    const newLimit = process.getrlimit?.('nofile');
-    console.log('[Electron] New file descriptor limit:', newLimit?.soft);
-  } else {
-    console.log('[Electron] File descriptor limit already adequate:', currentLimit?.soft);
-  }
-} catch (error) {
-  console.warn('[Electron] Failed to increase file descriptor limit:', (error as Error).message);
-  console.warn(
-    '[Electron] This may cause crashes with many concurrent features. Consider manually setting: ulimit -n 10240'
-  );
-}
+// File descriptor limit will be set when spawning the backend server
+// See the spawn() call below for ulimit wrapper
 
 // Load environment variables from .env file (development only)
 if (isDev) {
@@ -399,7 +372,19 @@ async function startServer(): Promise<void> {
   console.log('[Electron] Server path:', serverPath);
   console.log('[Electron] NODE_PATH:', serverNodeModules);
 
-  serverProcess = spawn(command, args, {
+  // Wrap node command with ulimit to increase file descriptor limit
+  // This prevents SIGKILL crashes with concurrent features
+  const TARGET_FD_LIMIT = 10240;
+  const wrappedCommand =
+    process.platform === 'darwin' || process.platform === 'linux' ? 'sh' : command;
+  const wrappedArgs =
+    process.platform === 'darwin' || process.platform === 'linux'
+      ? ['-c', `ulimit -n ${TARGET_FD_LIMIT}; "${command}" ${args.map((a) => `"${a}"`).join(' ')}`]
+      : args;
+
+  console.log('[Electron] Setting file descriptor limit for backend:', TARGET_FD_LIMIT);
+
+  serverProcess = spawn(wrappedCommand, wrappedArgs, {
     cwd: path.dirname(serverPath),
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
