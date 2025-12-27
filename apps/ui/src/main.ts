@@ -40,25 +40,35 @@ console.log('[Electron] Network stability flags applied');
 // ============================================
 // File Descriptor Limit Configuration
 // ============================================
-// Increase FD limit for Electron process and all children (including network service)
-// macOS default is 256 which is too low for concurrent operations
-const TARGET_FD_LIMIT = 10240;
-
+// Verify actual FD limit that Electron inherited from shell wrapper
 try {
   if (process.platform === 'darwin' || process.platform === 'linux') {
-    // Try to set via Node.js API (might not be available)
-    if (typeof (process as any).setrlimit === 'function') {
-      (process as any).setrlimit('nofile', { soft: TARGET_FD_LIMIT, hard: TARGET_FD_LIMIT });
-      console.log(`[Electron] FD limit set to ${TARGET_FD_LIMIT} via setrlimit`);
+    const { execSync } = require('child_process');
+    // Check the actual soft limit for this process
+    const output = execSync('sh -c "ulimit -n"', { encoding: 'utf8' });
+    const actualLimit = parseInt(output.trim(), 10);
+    console.log('[Electron] ACTUAL FD LIMIT:', {
+      actualLimit,
+      expectedFromScript: 10240,
+      systemDefault: 256,
+      limitIsApplied: actualLimit > 256,
+    });
+
+    if (actualLimit <= 256) {
+      console.error('[Electron] ⚠️  WARNING: FD limit was NOT increased by dev script!');
+      console.error('[Electron] Expected 10240 but got', actualLimit);
+      console.error('[Electron] Network service may still crash under load');
     } else {
-      // setrlimit not available, we'll use shell wrapper for backend
-      // Electron process itself will keep system default (256)
-      console.log('[Electron] setrlimit API not available, using shell wrapper for backend only');
+      console.log('[Electron] ✓ FD limit successfully applied via dev script wrapper');
     }
   }
 } catch (error) {
-  console.warn('[Electron] Failed to set FD limit:', (error as Error).message);
+  console.warn('[Electron] Failed to check FD limit:', (error as Error).message);
 }
+
+// File descriptor limit should be set by the shell wrapper in package.json dev script
+// If the check above shows limit <= 256, the wrapper didn't work
+const TARGET_FD_LIMIT = 10240;
 
 // Load environment variables from .env file (development only)
 if (isDev) {
