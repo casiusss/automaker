@@ -58,34 +58,33 @@ dotenv.config();
 // Verify File Descriptor Limit
 // ============================================
 // Check if ulimit wrapper actually increased our FD limit
-(() => {
-  try {
-    const { execSync } = require('child_process');
-    // Count current FDs as a proxy for checking if limit is working
-    const fdCountOutput = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
-      encoding: 'utf8',
-      timeout: 3000,
-    });
-    const currentFds = parseInt(fdCountOutput.trim(), 10) - 1;
+import { execSync } from 'child_process';
 
-    console.log('[Backend] EARLY FD CHECK:', {
-      pid: process.pid,
-      currentFDs: currentFds,
-      expectedLimit: 10240,
-      systemDefault: 256,
-      timestamp: new Date().toISOString(),
-    });
+try {
+  // Count current FDs as a proxy for checking if limit is working
+  const fdCountOutput = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+    encoding: 'utf8',
+    timeout: 3000,
+  });
+  const currentFds = parseInt(fdCountOutput.trim(), 10) - 1;
 
-    // If we already have > 256 FDs open at startup, ulimit is definitely working!
-    if (currentFds > 256) {
-      console.log(
-        '[Backend] ✓ FD limit verified: ulimit wrapper is working (FD count > system default)'
-      );
-    }
-  } catch (error) {
-    console.warn('[Backend] Early FD check failed:', (error as Error).message);
+  console.log('[Backend] EARLY FD CHECK:', {
+    pid: process.pid,
+    currentFDs: currentFds,
+    expectedLimit: 10240,
+    systemDefault: 256,
+    timestamp: new Date().toISOString(),
+  });
+
+  // If we already have > 256 FDs open at startup, ulimit is definitely working!
+  if (currentFds > 256) {
+    console.log(
+      '[Backend] ✓ FD limit verified: ulimit wrapper is working (FD count > system default)'
+    );
   }
-})();
+} catch (error) {
+  console.warn('[Backend] Early FD check failed:', (error as Error).message);
+}
 
 const PORT = parseInt(process.env.PORT || '3008', 10);
 const DATA_DIR = process.env.DATA_DIR || './data';
@@ -286,7 +285,6 @@ wss.on('connection', (ws: WebSocket) => {
       let fdCount = 0;
       try {
         if (process.platform === 'darwin' || process.platform === 'linux') {
-          const { execSync } = require('child_process');
           const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
             encoding: 'utf8',
             timeout: 5000,
@@ -563,7 +561,6 @@ const startServer = (port: number) => {
     // Try to verify by checking current FD count as a proxy
     try {
       if (process.platform === 'darwin' || process.platform === 'linux') {
-        const { execSync } = require('child_process');
         const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
           encoding: 'utf8',
           timeout: 5000,
