@@ -204,7 +204,7 @@ const MESSAGE_RATE_WINDOW = 2000; // 2 second rolling window
 const HIGH_RATE_THRESHOLD = 50; // Warning if >50 messages in 2 seconds
 
 wss.on('connection', (ws: WebSocket) => {
-  console.log('[WebSocket] Client connected');
+  console.log('[WebSocket] Client connected, ready state:', ws.readyState);
 
   // Subscribe to all events and forward to this client
   const unsubscribe = events.subscribe((type, payload) => {
@@ -274,7 +274,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('error', (error) => {
-    console.error('[WebSocket] Error:', error);
+    console.error('[WebSocket] ERROR:', error);
     unsubscribe();
   });
 });
