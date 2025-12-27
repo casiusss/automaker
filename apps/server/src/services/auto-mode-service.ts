@@ -397,8 +397,8 @@ export class AutoModeService {
       !this.autoLoopAbortController.signal.aborted
     ) {
       try {
-        // Check if we have capacity (limit lowered to prevent network service crashes)
-        if (this.runningFeatures.size >= (this.config?.maxConcurrency || 2)) {
+        // Check if we have capacity
+        if (this.runningFeatures.size >= (this.config?.maxConcurrency || 3)) {
           await this.sleep(5000);
           continue;
         }
@@ -481,17 +481,6 @@ export class AutoModeService {
   ): Promise<void> {
     if (this.runningFeatures.has(featureId)) {
       throw new Error('already running');
-    }
-
-    // Enforce max concurrency limit to prevent Electron network service crashes
-    // Analysis shows crashes occur with 3+ concurrent tasks due to subprocess overload
-    const MAX_CONCURRENT_FEATURES = 2; // Conservative limit after crash analysis
-    if (this.runningFeatures.size >= MAX_CONCURRENT_FEATURES) {
-      throw new Error(
-        `Maximum concurrent features limit reached (${MAX_CONCURRENT_FEATURES}). ` +
-          `Currently running: ${Array.from(this.runningFeatures.keys()).join(', ')}. ` +
-          `Please wait for a feature to complete before starting a new one.`
-      );
     }
 
     // Add to running features immediately to prevent race conditions
