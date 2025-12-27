@@ -16,6 +16,27 @@ import { findNodeExecutable, buildEnhancedPath } from '@automaker/platform';
 const isDev = !app.isPackaged;
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
+// ============================================
+// Electron Network Service Stability Flags
+// ============================================
+// Add flags to prevent network service crashes
+// See: https://github.com/electron/electron/issues/18397
+console.log('[Electron] Applying network stability flags...');
+
+// Disable site isolation to reduce process overhead
+app.commandLine.appendSwitch('disable-site-isolation-trials');
+
+// Use in-process network service (more stable but uses main process)
+app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
+
+// Reduce renderer process limits to prevent resource exhaustion
+app.commandLine.appendSwitch('renderer-process-limit', '10');
+
+// Enable more aggressive garbage collection
+app.commandLine.appendSwitch('js-flags', '--expose-gc --max-old-space-size=4096');
+
+console.log('[Electron] Network stability flags applied');
+
 // Load environment variables from .env file (development only)
 if (isDev) {
   try {

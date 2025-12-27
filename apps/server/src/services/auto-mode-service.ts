@@ -492,6 +492,18 @@ export class AutoModeService {
     };
     this.runningFeatures.set(featureId, tempRunningFeature);
 
+    // Log concurrent task tracking for crash diagnosis
+    const concurrentCount = this.runningFeatures.size;
+    const memoryUsage = process.memoryUsage();
+    console.log('[AutoMode] TASK_START:', {
+      featureId,
+      concurrentTasks: concurrentCount,
+      isAutoMode,
+      memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+      memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       // Validate that project path is allowed using centralized validation
       validateWorkingDirectory(projectPath);
@@ -662,10 +674,21 @@ export class AutoModeService {
         });
       }
     } finally {
-      console.log(`[AutoMode] Feature ${featureId} execution ended, cleaning up runningFeatures`);
-      console.log(
-        `[AutoMode] Pending approvals at cleanup: ${Array.from(this.pendingApprovals.keys()).join(', ') || 'none'}`
-      );
+      const runningFeature = this.runningFeatures.get(featureId);
+      const duration = runningFeature ? Date.now() - runningFeature.startTime : 0;
+      const remainingCount = this.runningFeatures.size - 1; // -1 because we're about to delete
+      const memoryUsage = process.memoryUsage();
+
+      console.log('[AutoMode] TASK_END:', {
+        featureId,
+        durationMs: duration,
+        remainingTasks: remainingCount,
+        memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+        memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+        pendingApprovals: Array.from(this.pendingApprovals.keys()),
+        timestamp: new Date().toISOString(),
+      });
+
       this.runningFeatures.delete(featureId);
     }
   }
@@ -2372,6 +2395,16 @@ Implement all the changes described in the plan above.`;
               });
             }
           } else if (block.type === 'tool_use') {
+            // Log tool execution for crash diagnosis
+            const memoryUsage = process.memoryUsage();
+            console.log('[AutoMode] TOOL_EXEC:', {
+              featureId,
+              tool: block.name,
+              concurrentTasks: this.runningFeatures.size,
+              memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+              timestamp: new Date().toISOString(),
+            });
+
             // Emit event for real-time UI
             this.emitAutoModeEvent('auto_mode_tool', {
               featureId,

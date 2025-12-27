@@ -189,11 +189,33 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 // Events WebSocket connection handler
+// Track events for crash diagnosis
+let eventCounter = 0;
+let lastEventLog = Date.now();
+const EVENT_LOG_INTERVAL = 10000; // Log stats every 10 seconds
+
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WebSocket] Client connected');
 
   // Subscribe to all events and forward to this client
   const unsubscribe = events.subscribe((type, payload) => {
+    eventCounter++;
+
+    // Periodically log event statistics for crash diagnosis
+    const now = Date.now();
+    if (now - lastEventLog > EVENT_LOG_INTERVAL) {
+      const memoryUsage = process.memoryUsage();
+      console.log('[WebSocket] EVENT_STATS:', {
+        totalEvents: eventCounter,
+        eventsPer10s: eventCounter,
+        memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+        memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+        timestamp: new Date().toISOString(),
+      });
+      eventCounter = 0;
+      lastEventLog = now;
+    }
+
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type, payload }));
     }
