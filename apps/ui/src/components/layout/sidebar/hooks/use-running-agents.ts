@@ -36,7 +36,8 @@ export function useRunningAgents() {
       if (
         event.type === 'auto_mode_feature_complete' ||
         event.type === 'auto_mode_error' ||
-        event.type === 'auto_mode_feature_start'
+        event.type === 'auto_mode_feature_start' ||
+        event.type === 'websocket_reconnected' // Refresh after network service crash/reconnect
       ) {
         fetchRunningAgentsCount();
       }

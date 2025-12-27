@@ -279,6 +279,9 @@ export type AutoModeEvent =
       featureId: string;
       projectPath?: string;
       phaseNumber: number;
+    }
+  | {
+      type: 'websocket_reconnected';
     };
 
 export type SpecRegenerationEvent =

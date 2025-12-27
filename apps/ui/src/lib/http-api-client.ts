@@ -97,6 +97,13 @@ export class HttpApiClient implements ElectronAPI {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
+
+        // Emit a reconnect event so UI can refresh running agents
+        // This ensures the UI stays in sync after network service crashes
+        const callbacks = this.eventCallbacks.get('websocket_reconnected');
+        if (callbacks) {
+          callbacks.forEach((cb) => cb({}));
+        }
       };
 
       this.ws.onmessage = (event) => {
