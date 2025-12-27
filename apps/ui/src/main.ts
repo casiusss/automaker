@@ -547,6 +547,56 @@ app.whenReady().then(async () => {
 
     // Create window
     createWindow();
+
+    // Monitor Electron processes for crash diagnosis
+    const logProcessMetrics = () => {
+      const metrics = app.getAppMetrics();
+      const totalProcesses = metrics.length;
+      const rendererProcesses = metrics.filter((m) => m.type === 'Renderer').length;
+      const utilityProcesses = metrics.filter((m) => m.type === 'Utility').length;
+      const totalMemoryMB = Math.round(
+        metrics.reduce((sum, m) => sum + (m.memory?.workingSetSize || 0), 0) / 1024 / 1024
+      );
+
+      console.log('[Electron] PROCESS_METRICS:', {
+        totalProcesses,
+        rendererProcesses,
+        utilityProcesses,
+        totalMemoryMB,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (totalProcesses > 15) {
+        console.warn('[Electron] HIGH_PROCESS_COUNT:', {
+          count: totalProcesses,
+          threshold: 15,
+        });
+      }
+    };
+
+    // Log process metrics every 10 seconds
+    setInterval(logProcessMetrics, 10000);
+    logProcessMetrics(); // Log immediately
+
+    // Monitor for process crashes
+    app.on('child-process-gone', (event, details) => {
+      console.error('[Electron] CHILD_PROCESS_GONE:', {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        serviceName: details.serviceName,
+        name: details.name,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    app.on('render-process-gone', (event, webContents, details) => {
+      console.error('[Electron] RENDER_PROCESS_GONE:', {
+        reason: details.reason,
+        exitCode: details.exitCode,
+        timestamp: new Date().toISOString(),
+      });
+    });
   } catch (error) {
     console.error('[Electron] Failed to start:', error);
     const errorMessage = (error as Error).message;

@@ -189,10 +189,19 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 // Events WebSocket connection handler
-// Track events for crash diagnosis
+// Track events for crash diagnosis with detailed metrics
 let eventCounter = 0;
 let lastEventLog = Date.now();
 const EVENT_LOG_INTERVAL = 10000; // Log stats every 10 seconds
+
+// Track message rate and size for burst detection
+const messageTimestamps: number[] = []; // Rolling window of last 2 seconds
+const messageSizes: number[] = []; // Track message sizes
+let totalBytesSent = 0;
+let lastBurstWarning = 0;
+const BURST_WARNING_INTERVAL = 5000; // Only warn every 5 seconds
+const MESSAGE_RATE_WINDOW = 2000; // 2 second rolling window
+const HIGH_RATE_THRESHOLD = 50; // Warning if >50 messages in 2 seconds
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[WebSocket] Client connected');
@@ -200,24 +209,62 @@ wss.on('connection', (ws: WebSocket) => {
   // Subscribe to all events and forward to this client
   const unsubscribe = events.subscribe((type, payload) => {
     eventCounter++;
+    const now = Date.now();
+
+    // Prepare message
+    const message = JSON.stringify({ type, payload });
+    const messageSize = message.length;
+    totalBytesSent += messageSize;
+
+    // Track this message timestamp and size
+    messageTimestamps.push(now);
+    messageSizes.push(messageSize);
+
+    // Clean up old timestamps (older than 2 seconds)
+    const cutoff = now - MESSAGE_RATE_WINDOW;
+    while (messageTimestamps.length > 0 && messageTimestamps[0] < cutoff) {
+      messageTimestamps.shift();
+      messageSizes.shift();
+    }
+
+    // Check for message burst (potential crash trigger)
+    const messagesInWindow = messageTimestamps.length;
+    if (messagesInWindow > HIGH_RATE_THRESHOLD && now - lastBurstWarning > BURST_WARNING_INTERVAL) {
+      const avgSize = messageSizes.reduce((a, b) => a + b, 0) / messageSizes.length;
+      const totalBytes = messageSizes.reduce((a, b) => a + b, 0);
+      console.warn('[WebSocket] HIGH_MESSAGE_RATE:', {
+        messagesInLast2s: messagesInWindow,
+        avgMessageSize: Math.round(avgSize),
+        totalBytesInWindow: totalBytes,
+        bytesPerSecond: Math.round(totalBytes / (MESSAGE_RATE_WINDOW / 1000)),
+        timestamp: new Date().toISOString(),
+      });
+      lastBurstWarning = now;
+    }
 
     // Periodically log event statistics for crash diagnosis
-    const now = Date.now();
     if (now - lastEventLog > EVENT_LOG_INTERVAL) {
       const memoryUsage = process.memoryUsage();
+      const avgMsgSize =
+        messageSizes.length > 0 ? messageSizes.reduce((a, b) => a + b, 0) / messageSizes.length : 0;
       console.log('[WebSocket] EVENT_STATS:', {
         totalEvents: eventCounter,
         eventsPer10s: eventCounter,
+        currentMessageRate: messagesInWindow,
+        avgMessageSizeBytes: Math.round(avgMsgSize),
+        totalBytesSent: totalBytesSent,
         memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
         memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
         timestamp: new Date().toISOString(),
       });
       eventCounter = 0;
       lastEventLog = now;
+      totalBytesSent = 0; // Reset byte counter
     }
 
+    // Send message
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type, payload }));
+      ws.send(message);
     }
   });
 
