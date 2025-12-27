@@ -245,6 +245,7 @@ wss.on('connection', (ws: WebSocket) => {
     // Periodically log event statistics for crash diagnosis
     if (now - lastEventLog > EVENT_LOG_INTERVAL) {
       const memoryUsage = process.memoryUsage();
+      const resourceUsage = process.resourceUsage();
       const avgMsgSize =
         messageSizes.length > 0 ? messageSizes.reduce((a, b) => a + b, 0) / messageSizes.length : 0;
       console.log('[WebSocket] EVENT_STATS:', {
@@ -255,6 +256,7 @@ wss.on('connection', (ws: WebSocket) => {
         totalBytesSent: totalBytesSent,
         memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
         memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+        maxRssMB: resourceUsage ? Math.round(resourceUsage.maxRSS / 1024) : undefined,
         timestamp: new Date().toISOString(),
       });
       eventCounter = 0;

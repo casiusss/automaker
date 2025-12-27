@@ -558,13 +558,29 @@ app.whenReady().then(async () => {
         metrics.reduce((sum, m) => sum + (m.memory?.workingSetSize || 0), 0) / 1024 / 1024
       );
 
+      // Get file descriptor count via system API
+      const cpuUsage = process.cpuUsage();
+      const resourceUsage = process.resourceUsage();
+
       console.log('[Electron] PROCESS_METRICS:', {
         totalProcesses,
         rendererProcesses,
         utilityProcesses,
         totalMemoryMB,
+        cpuUserMicros: cpuUsage.user,
+        cpuSystemMicros: cpuUsage.system,
         timestamp: new Date().toISOString(),
       });
+
+      // Log resource usage for crash correlation
+      if (resourceUsage) {
+        console.log('[Electron] RESOURCE_USAGE:', {
+          maxRSS: Math.round(resourceUsage.maxRSS / 1024), // KB -> MB
+          sharedMemorySize: resourceUsage.sharedMemorySize,
+          swappedOut: resourceUsage.swappedOut,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       if (totalProcesses > 15) {
         console.warn('[Electron] HIGH_PROCESS_COUNT:', {

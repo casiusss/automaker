@@ -499,12 +499,14 @@ export class AutoModeService {
     // Log concurrent task tracking for crash diagnosis
     const concurrentCount = this.runningFeatures.size;
     const memoryUsage = process.memoryUsage();
+    const resourceUsage = process.resourceUsage();
     console.log('[AutoMode] TASK_START:', {
       featureId,
       concurrentTasks: concurrentCount,
       isAutoMode,
       memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
       memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      maxRssMB: resourceUsage ? Math.round(resourceUsage.maxRSS / 1024) : undefined,
       timestamp: new Date().toISOString(),
     });
 
