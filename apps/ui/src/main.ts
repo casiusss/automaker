@@ -37,8 +37,28 @@ app.commandLine.appendSwitch('js-flags', '--expose-gc --max-old-space-size=4096'
 
 console.log('[Electron] Network stability flags applied');
 
-// File descriptor limit will be set when spawning the backend server
-// See the spawn() call below for ulimit wrapper
+// ============================================
+// File Descriptor Limit Configuration
+// ============================================
+// Increase FD limit for Electron process and all children (including network service)
+// macOS default is 256 which is too low for concurrent operations
+const TARGET_FD_LIMIT = 10240;
+
+try {
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    // Try to set via Node.js API (might not be available)
+    if (typeof (process as any).setrlimit === 'function') {
+      (process as any).setrlimit('nofile', { soft: TARGET_FD_LIMIT, hard: TARGET_FD_LIMIT });
+      console.log(`[Electron] FD limit set to ${TARGET_FD_LIMIT} via setrlimit`);
+    } else {
+      // setrlimit not available, we'll use shell wrapper for backend
+      // Electron process itself will keep system default (256)
+      console.log('[Electron] setrlimit API not available, using shell wrapper for backend only');
+    }
+  }
+} catch (error) {
+  console.warn('[Electron] Failed to set FD limit:', (error as Error).message);
+}
 
 // Load environment variables from .env file (development only)
 if (isDev) {

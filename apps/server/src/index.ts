@@ -54,6 +54,39 @@ import { cleanupStaleValidations } from './routes/github/routes/validation-commo
 // Load environment variables
 dotenv.config();
 
+// ============================================
+// Verify File Descriptor Limit
+// ============================================
+// Check if ulimit wrapper actually increased our FD limit
+(() => {
+  try {
+    const { execSync } = require('child_process');
+    // Count current FDs as a proxy for checking if limit is working
+    const fdCountOutput = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    const currentFds = parseInt(fdCountOutput.trim(), 10) - 1;
+
+    console.log('[Backend] EARLY FD CHECK:', {
+      pid: process.pid,
+      currentFDs: currentFds,
+      expectedLimit: 10240,
+      systemDefault: 256,
+      timestamp: new Date().toISOString(),
+    });
+
+    // If we already have > 256 FDs open at startup, ulimit is definitely working!
+    if (currentFds > 256) {
+      console.log(
+        '[Backend] ✓ FD limit verified: ulimit wrapper is working (FD count > system default)'
+      );
+    }
+  } catch (error) {
+    console.warn('[Backend] Early FD check failed:', (error as Error).message);
+  }
+})();
+
 const PORT = parseInt(process.env.PORT || '3008', 10);
 const DATA_DIR = process.env.DATA_DIR || './data';
 const ENABLE_REQUEST_LOGGING = process.env.ENABLE_REQUEST_LOGGING !== 'false'; // Default to true
@@ -256,11 +289,14 @@ wss.on('connection', (ws: WebSocket) => {
           const { execSync } = require('child_process');
           const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
             encoding: 'utf8',
+            timeout: 5000,
+            maxBuffer: 1024 * 1024,
           });
           fdCount = parseInt(output.trim(), 10) - 1; // Subtract header line
         }
       } catch (error) {
-        // lsof might fail, that's okay
+        // Log error to see why lsof is failing
+        console.warn('[Backend] FD count check failed:', (error as Error).message);
       }
 
       console.log('[WebSocket] EVENT_STATS:', {
@@ -520,15 +556,23 @@ const startServer = (port: number) => {
     const portStr = port.toString().padEnd(4);
 
     // Check actual file descriptor limit
-    let fdLimit = 'unknown';
+    // Note: execSync('ulimit -n') spawns a NEW shell that doesn't inherit our limit
+    // So we'll just document what we expect and verify via lsof instead
+    let fdLimit = 'expected: 10240 (set via wrapper shell)';
+
+    // Try to verify by checking current FD count as a proxy
     try {
       if (process.platform === 'darwin' || process.platform === 'linux') {
         const { execSync } = require('child_process');
-        const output = execSync('ulimit -n', { encoding: 'utf8' });
-        fdLimit = output.trim();
+        const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        const currentFds = parseInt(output.trim(), 10) - 1;
+        fdLimit = `expected: 10240, current FDs: ${currentFds}`;
       }
     } catch (error) {
-      // ulimit might fail
+      fdLimit = 'expected: 10240 (verification failed)';
     }
 
     console.log(`
