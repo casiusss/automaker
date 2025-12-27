@@ -248,17 +248,44 @@ wss.on('connection', (ws: WebSocket) => {
       const resourceUsage = process.resourceUsage();
       const avgMsgSize =
         messageSizes.length > 0 ? messageSizes.reduce((a, b) => a + b, 0) / messageSizes.length : 0;
+
+      // Get file descriptor count via lsof
+      let fdCount = 0;
+      try {
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          const { execSync } = require('child_process');
+          const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+            encoding: 'utf8',
+          });
+          fdCount = parseInt(output.trim(), 10) - 1; // Subtract header line
+        }
+      } catch (error) {
+        // lsof might fail, that's okay
+      }
+
       console.log('[WebSocket] EVENT_STATS:', {
         totalEvents: eventCounter,
         eventsPer10s: eventCounter,
         currentMessageRate: messagesInWindow,
         avgMessageSizeBytes: Math.round(avgMsgSize),
         totalBytesSent: totalBytesSent,
+        fileDescriptors: fdCount,
         memoryHeapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
         memoryHeapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
         maxRssMB: resourceUsage ? Math.round(resourceUsage.maxRSS / 1024) : undefined,
         timestamp: new Date().toISOString(),
       });
+
+      // Warn if FD count is approaching limit
+      if (fdCount > 8000) {
+        console.warn('[Backend] HIGH_FD_COUNT:', {
+          fdCount,
+          threshold: 8000,
+          limit: 10240,
+          warningPercentage: Math.round((fdCount / 10240) * 100),
+        });
+      }
+
       eventCounter = 0;
       lastEventLog = now;
       totalBytesSent = 0; // Reset byte counter
@@ -491,6 +518,19 @@ const startServer = (port: number) => {
         : 'enabled'
       : 'disabled';
     const portStr = port.toString().padEnd(4);
+
+    // Check actual file descriptor limit
+    let fdLimit = 'unknown';
+    try {
+      if (process.platform === 'darwin' || process.platform === 'linux') {
+        const { execSync } = require('child_process');
+        const output = execSync('ulimit -n', { encoding: 'utf8' });
+        fdLimit = output.trim();
+      }
+    } catch (error) {
+      // ulimit might fail
+    }
+
     console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║           Automaker Backend Server                    ║
@@ -500,8 +540,17 @@ const startServer = (port: number) => {
 ║  Terminal:    ws://localhost:${portStr}/api/terminal/ws   ║
 ║  Health:      http://localhost:${portStr}/api/health      ║
 ║  Terminal:    ${terminalStatus.padEnd(37)}║
+║  FD Limit:    ${fdLimit.padEnd(37)}║
 ╚═══════════════════════════════════════════════════════╝
 `);
+
+    console.log('[Backend] STARTUP_INFO:', {
+      pid: process.pid,
+      fdLimit,
+      platform: process.platform,
+      nodeVersion: process.version,
+      timestamp: new Date().toISOString(),
+    });
   });
 
   server.on('error', (error: NodeJS.ErrnoException) => {

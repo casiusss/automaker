@@ -390,6 +390,12 @@ async function startServer(): Promise<void> {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
+  console.log('[Electron] Backend server process started:', {
+    pid: serverProcess.pid,
+    fdLimitSet: TARGET_FD_LIMIT,
+    timestamp: new Date().toISOString(),
+  });
+
   serverProcess.stdout?.on('data', (data) => {
     console.log(`[Server] ${data.toString().trim()}`);
   });
@@ -573,7 +579,20 @@ app.whenReady().then(async () => {
         metrics.reduce((sum, m) => sum + (m.memory?.workingSetSize || 0), 0) / 1024 / 1024
       );
 
-      // Get file descriptor count via system API
+      // Get file descriptor count via lsof
+      let fdCount = 0;
+      try {
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          const { execSync } = require('child_process');
+          const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+            encoding: 'utf8',
+          });
+          fdCount = parseInt(output.trim(), 10) - 1; // Subtract header line
+        }
+      } catch (error) {
+        // lsof might fail, that's okay
+      }
+
       const cpuUsage = process.cpuUsage();
       const resourceUsage = process.resourceUsage();
 
@@ -582,6 +601,7 @@ app.whenReady().then(async () => {
         rendererProcesses,
         utilityProcesses,
         totalMemoryMB,
+        fileDescriptors: fdCount,
         cpuUserMicros: cpuUsage.user,
         cpuSystemMicros: cpuUsage.system,
         timestamp: new Date().toISOString(),
@@ -594,6 +614,15 @@ app.whenReady().then(async () => {
           sharedMemorySize: resourceUsage.sharedMemorySize,
           swappedOut: resourceUsage.swappedOut,
           timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Warn if FD count is high
+      if (fdCount > 200) {
+        console.warn('[Electron] HIGH_FD_COUNT:', {
+          fdCount,
+          threshold: 200,
+          limit: 10240,
         });
       }
 
@@ -611,20 +640,50 @@ app.whenReady().then(async () => {
 
     // Monitor for process crashes
     app.on('child-process-gone', (event, details) => {
+      // Get FD count at crash time
+      let fdCount = 0;
+      try {
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          const { execSync } = require('child_process');
+          const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+            encoding: 'utf8',
+          });
+          fdCount = parseInt(output.trim(), 10) - 1;
+        }
+      } catch (error) {
+        // lsof might fail
+      }
+
       console.error('[Electron] CHILD_PROCESS_GONE:', {
         type: details.type,
         reason: details.reason,
         exitCode: details.exitCode,
         serviceName: details.serviceName,
         name: details.name,
+        fileDescriptorsAtCrash: fdCount,
         timestamp: new Date().toISOString(),
       });
     });
 
     app.on('render-process-gone', (event, webContents, details) => {
+      // Get FD count at crash time
+      let fdCount = 0;
+      try {
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          const { execSync } = require('child_process');
+          const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
+            encoding: 'utf8',
+          });
+          fdCount = parseInt(output.trim(), 10) - 1;
+        }
+      } catch (error) {
+        // lsof might fail
+      }
+
       console.error('[Electron] RENDER_PROCESS_GONE:', {
         reason: details.reason,
         exitCode: details.exitCode,
+        fileDescriptorsAtCrash: fdCount,
         timestamp: new Date().toISOString(),
       });
     });
