@@ -609,15 +609,41 @@ app.whenReady().then(async () => {
         metrics.reduce((sum, m) => sum + (m.memory?.workingSetSize || 0), 0) / 1024 / 1024
       );
 
-      // Get file descriptor count via lsof
-      let fdCount = 0;
+      // Get file descriptor count for main process and all child processes
+      let mainProcessFdCount = 0;
+      let totalFdCount = 0;
       try {
         if (process.platform === 'darwin' || process.platform === 'linux') {
           const { execSync } = require('child_process');
+
+          // Main process FDs
           const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
             encoding: 'utf8',
           });
-          fdCount = parseInt(output.trim(), 10) - 1; // Subtract header line
+          mainProcessFdCount = parseInt(output.trim(), 10) - 1;
+
+          // Get all Electron child process PIDs
+          const allPidsOutput = execSync(
+            `ps -A -o ppid,pid,command | grep ${process.pid} | grep -v grep | awk '{print $2}'`,
+            { encoding: 'utf8' }
+          );
+          const pids = allPidsOutput.split('\n').filter((p) => p.trim());
+          pids.push(process.pid.toString()); // Add main process
+
+          // Count FDs for all processes
+          let total = 0;
+          for (const pid of pids) {
+            if (!pid.trim()) continue;
+            try {
+              const fdOutput = execSync(`lsof -p ${pid.trim()} 2>/dev/null | wc -l`, {
+                encoding: 'utf8',
+              });
+              total += parseInt(fdOutput.trim(), 10) - 1;
+            } catch {
+              // Process might have exited
+            }
+          }
+          totalFdCount = total;
         }
       } catch (error) {
         // lsof might fail, that's okay
@@ -631,7 +657,8 @@ app.whenReady().then(async () => {
         rendererProcesses,
         utilityProcesses,
         totalMemoryMB,
-        fileDescriptors: fdCount,
+        mainProcessFDs: mainProcessFdCount,
+        totalElectronFDs: totalFdCount,
         cpuUserMicros: cpuUsage.user,
         cpuSystemMicros: cpuUsage.system,
         timestamp: new Date().toISOString(),
@@ -647,12 +674,23 @@ app.whenReady().then(async () => {
         });
       }
 
-      // Warn if FD count is high
-      if (fdCount > 200) {
+      // Warn if total FD count is high (approaching soft limit across all processes)
+      if (totalFdCount > 8000) {
         console.warn('[Electron] HIGH_FD_COUNT:', {
-          fdCount,
-          threshold: 200,
-          limit: 10240,
+          mainProcessFDs: mainProcessFdCount,
+          totalElectronFDs: totalFdCount,
+          threshold: 8000,
+          softLimit: 10240,
+          warningPercentage: Math.round((totalFdCount / 10240) * 100),
+        });
+      }
+
+      // Warn if main process alone is using many FDs
+      if (mainProcessFdCount > 5000) {
+        console.warn('[Electron] MAIN_PROCESS_HIGH_FD_COUNT:', {
+          mainProcessFDs: mainProcessFdCount,
+          threshold: 5000,
+          softLimit: 10240,
         });
       }
 
@@ -670,15 +708,45 @@ app.whenReady().then(async () => {
 
     // Monitor for process crashes
     app.on('child-process-gone', (event, details) => {
-      // Get FD count at crash time
-      let fdCount = 0;
+      // Get FD count for main Electron process
+      let mainProcessFdCount = 0;
+      let allElectronProcessesFdCount = 0;
+
       try {
         if (process.platform === 'darwin' || process.platform === 'linux') {
           const { execSync } = require('child_process');
+
+          // Main process FD count
           const output = execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`, {
             encoding: 'utf8',
           });
-          fdCount = parseInt(output.trim(), 10) - 1;
+          mainProcessFdCount = parseInt(output.trim(), 10) - 1;
+
+          // Count FDs for ALL Electron processes (including network service)
+          // This shows total FD usage across the entire Electron app
+          const allPidsOutput = execSync(
+            `ps -A -o ppid,pid,command | grep ${process.pid} | grep -v grep | awk '{print $2}'`,
+            { encoding: 'utf8' }
+          );
+          const pids = allPidsOutput.split('\n').filter((p) => p.trim());
+
+          // Add main process PID
+          pids.push(process.pid.toString());
+
+          // Count FDs for each process
+          let totalFds = 0;
+          for (const pid of pids) {
+            if (!pid.trim()) continue;
+            try {
+              const fdOutput = execSync(`lsof -p ${pid.trim()} 2>/dev/null | wc -l`, {
+                encoding: 'utf8',
+              });
+              totalFds += parseInt(fdOutput.trim(), 10) - 1;
+            } catch {
+              // Process might have already exited
+            }
+          }
+          allElectronProcessesFdCount = totalFds;
         }
       } catch (error) {
         // lsof might fail
@@ -690,7 +758,8 @@ app.whenReady().then(async () => {
         exitCode: details.exitCode,
         serviceName: details.serviceName,
         name: details.name,
-        fileDescriptorsAtCrash: fdCount,
+        mainProcessFDs: mainProcessFdCount,
+        totalElectronProcessesFDs: allElectronProcessesFdCount,
         timestamp: new Date().toISOString(),
       });
     });
