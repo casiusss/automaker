@@ -13,7 +13,6 @@ import type {
   InstallationStatus,
   ModelDefinition,
 } from './types.js';
-import { bashQueue } from '../lib/bash-queue.js';
 
 export class ClaudeProvider extends BaseProvider {
   getName(): string {
@@ -56,60 +55,6 @@ export class ClaudeProvider extends BaseProvider {
       ...(options.settingSources && { settingSources: options.settingSources }),
       // Forward sandbox configuration
       ...(options.sandbox && { sandbox: options.sandbox }),
-      // Add Bash command queue hooks to prevent network service crashes
-      hooks: {
-        PreToolUse: [
-          {
-            // Only intercept Bash tool calls
-            matcher: 'Bash',
-            hooks: [
-              async (input) => {
-                if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Bash') {
-                  const toolInput = input.tool_input as Record<string, unknown>;
-                  const command = toolInput.command as string;
-
-                  // Wait for our turn in the queue
-                  await bashQueue.waitForTurn(input.tool_use_id, command, input.session_id);
-
-                  // Allow execution to proceed
-                  return { continue: true };
-                }
-                return { continue: true };
-              },
-            ],
-          },
-        ],
-        PostToolUse: [
-          {
-            // Track when Bash commands complete
-            matcher: 'Bash',
-            hooks: [
-              async (input) => {
-                if (input.hook_event_name === 'PostToolUse' && input.tool_name === 'Bash') {
-                  // Mark as complete to process next queued command
-                  bashQueue.markComplete(input.tool_use_id);
-                }
-                return { continue: true };
-              },
-            ],
-          },
-        ],
-        PostToolUseFailure: [
-          {
-            // Track when Bash commands fail
-            matcher: 'Bash',
-            hooks: [
-              async (input) => {
-                if (input.hook_event_name === 'PostToolUseFailure' && input.tool_name === 'Bash') {
-                  // Mark as failed to process next queued command
-                  bashQueue.markFailed(input.tool_use_id, input.error);
-                }
-                return { continue: true };
-              },
-            ],
-          },
-        ],
-      },
     };
 
     // Build prompt payload
