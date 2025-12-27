@@ -37,6 +37,36 @@ app.commandLine.appendSwitch('js-flags', '--expose-gc --max-old-space-size=4096'
 
 console.log('[Electron] Network stability flags applied');
 
+// ============================================
+// Increase File Descriptor Limit
+// ============================================
+// Prevent SIGKILL due to file descriptor exhaustion
+// Analysis showed crashes at 256 FD limit with concurrent features
+try {
+  const currentLimit = process.getrlimit?.('nofile');
+  const TARGET_FD_LIMIT = 10240;
+
+  if (currentLimit && currentLimit.soft < TARGET_FD_LIMIT) {
+    console.log('[Electron] Current file descriptor limit:', currentLimit.soft);
+    console.log(`[Electron] Increasing file descriptor limit to ${TARGET_FD_LIMIT}...`);
+
+    process.setrlimit?.('nofile', {
+      soft: TARGET_FD_LIMIT,
+      hard: Math.max(TARGET_FD_LIMIT, currentLimit.hard),
+    });
+
+    const newLimit = process.getrlimit?.('nofile');
+    console.log('[Electron] New file descriptor limit:', newLimit?.soft);
+  } else {
+    console.log('[Electron] File descriptor limit already adequate:', currentLimit?.soft);
+  }
+} catch (error) {
+  console.warn('[Electron] Failed to increase file descriptor limit:', (error as Error).message);
+  console.warn(
+    '[Electron] This may cause crashes with many concurrent features. Consider manually setting: ulimit -n 10240'
+  );
+}
+
 // Load environment variables from .env file (development only)
 if (isDev) {
   try {
