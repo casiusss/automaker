@@ -399,7 +399,8 @@ export class AutoModeService {
       try {
         // Check if we have capacity
         if (this.runningFeatures.size >= (this.config?.maxConcurrency || 3)) {
-          await this.sleep(5000);
+          // Check more frequently when at capacity to quickly pick up newly available slots
+          await this.sleep(1000);
           continue;
         }
 
@@ -428,9 +429,13 @@ export class AutoModeService {
           ).catch((error) => {
             console.error(`[AutoMode] Feature ${nextFeature.id} error:`, error);
           });
+          // Short delay to allow the feature to be added to runningFeatures
+          // Then immediately check for more capacity
+          await this.sleep(500);
+        } else {
+          // No available features to run, wait longer before checking again
+          await this.sleep(2000);
         }
-
-        await this.sleep(2000);
       } catch (error) {
         console.error('[AutoMode] Loop iteration error:', error);
         await this.sleep(5000);
